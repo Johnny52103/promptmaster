@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #e5e5e5;
+  --surface: #121212;
+  --surface-2: #1a1a1a;
+  --surface-3: #222222;
+  --border: #2a2a2a;
+  --border-hover: #3a3a3a;
+  --accent: #d4a843;
+  --accent-hover: #e0b850;
+  --accent-dim: #a08030;
+  --text-secondary: #888888;
+  --text-tertiary: #555555;
+  --green: #4ade80;
+  --red: #f87171;
+  --blue: #60a5fa;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(212, 168, 67, 0.3);
+  color: #fff;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Animation for copy feedback */
+@keyframes copyPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.copy-animate {
+  animation: copyPulse 0.3s ease-in-out;
+}
+
+/* Score bar fill animation */
+@keyframes fillBar {
+  from { width: 0%; }
+  to { width: var(--score-width); }
+}
+
+.score-fill {
+  animation: fillBar 0.8s ease-out forwards;
+}
