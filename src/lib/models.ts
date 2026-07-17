@@ -116,6 +116,21 @@ const models: ModelConfig[] = [
       return positive
     },
   },
+  {
+    id: "doubao",
+    label: "Doubao",
+    shortLabel: "豆包",
+    keywords: ["doubao", "豆包", "ark"],
+    description: "ByteDance's AI image generation — fast, affordable, Chinese-friendly",
+    hasNegative: false,
+    params: [
+      { key: "model", label: "Model", value: "doubao-vision-pro" },
+      { key: "size", label: "Size", value: "1024x1024" },
+    ],
+    formatFull: (positive) => {
+      return positive
+    },
+  },
 ]
 
 export function getModel(id: string): ModelConfig {

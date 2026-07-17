@@ -9,6 +9,13 @@ import { useT, useLocale } from "@/lib/i18n"
 import { detectLanguage, translateInput, getLanguageName, type LanguageFamily } from "@/lib/translate"
 import { getHistory, addToHistory, deleteHistoryItem, samplePrompts, type HistoryItem } from "@/lib/history"
 import { detectModel, cycleModel, getModel, getAllModels } from "@/lib/models"
+import { generateImage, detectProvider, usingOwnKey, hasSysKey,
+  setReplicateKey, setOpenAIKey, setCustomUrl, setCustomKey, setCustomModel,
+  setSysReplicateKey, setSysOpenAIKey, setSysCustomUrl, setSysCustomKey, setSysCustomModel,
+  getReplicateKey, getOpenAIKey, getCustomUrl, getCustomKey, getCustomModel,
+  getSysReplicateKey, getSysOpenAIKey, getSysCustomUrl, getSysCustomKey, getSysCustomModel,
+  getModelGenStatus, providerCapabilities, type ImageGenResult } from "@/lib/imageGen"
+import { getDeepSeekKey, setDeepSeekKey } from "@/lib/optimizer"
 import LanguageSelector from "@/components/LanguageSelector"
 
 const scenes = getAllScenes()
@@ -18,6 +25,7 @@ const sceneLabelKeys: Record<string, any> = Object.fromEntries(scenes.map((s) =>
 const allModels = getAllModels()
 const modelLabelKeys: Record<string, string> = Object.fromEntries(allModels.map((m) => [m.id, `model.${m.id}`]))
 
+const IMG_COST = 5 // credits for image gen with system key
 const scoreLabelMap: Record<string, any> = {
   Excellent: "score.excellent", Great: "score.great", Good: "score.good",
   Fair: "score.fair", "Needs Work": "score.needsWork",
@@ -57,6 +65,11 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [showSelectors, setShowSelectors] = useState(false)
   const resultRef = useRef<HTMLDivElement>(null)
+  const [genImage, setGenImage] = useState<ImageGenResult | null>(null)
+  const [genLoading, setGenLoading] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [replicateInput, setReplicateInput] = useState("")
+  const [openaiInput, setOpenaiInput] = useState("")
 
   // Auto-detect from input
   const sceneId = useMemo(() => input.trim() ? autoDetectScene(input) : "character", [input])
@@ -70,26 +83,96 @@ export default function Home() {
 
   const currentScene = scenes.find((s) => s.id === effectiveScene) || scenes[0]
 
-  useEffect(() => { setHistory(getHistory()) }, [])
+  useEffect(() => {
+    setHistory(getHistory())
+    setReplicateInput(getReplicateKey())
+    setOpenaiInput(getOpenAIKey())
+
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search)
+
+      // SEO: pre-configure scene/model/input from URL params
+      const sceneParam = p.get("scene")
+      const modelParam = p.get("model")
+      const inputParam = p.get("input")
+      if (sceneParam) setOverriddenScene(sceneParam)
+      if (modelParam) setOverriddenModel(modelParam)
+      if (inputParam) { setInput(inputParam); setDetectedLang(detectLanguage(inputParam)) }
+
+      // Dev: init API keys from URL params
+      const dsk = p.get("deepseek_key")
+      if (dsk) { setDeepSeekKey(dsk); console.log("[Dev] DeepSeek key configured") }
+      const url = p.get("sys_custom_url")
+      const key = p.get("sys_custom_key")
+      const model = p.get("sys_custom_model")
+      if (url && key) {
+        setSysCustomUrl(url)
+        setSysCustomKey(key)
+        if (model) setSysCustomModel(model)
+        console.log("[Dev] System custom API configured")
+      }
+    }
+  }, [])
 
   // Reset overrides when input changes significantly
   useEffect(() => {
     if (!input.trim()) { setOverriddenScene(null); setOverriddenModel(null) }
   }, [input])
 
-  const doGenerate = useCallback((raw: string) => {
+  const doGenerate = useCallback(async (raw: string) => {
     if (!raw.trim() || loading || credits <= 0) return
     setLoading(true); setCopied(false)
-    setTimeout(() => {
-      const res = optimize({ rawInput: raw.trim(), sceneId: effectiveScene, model: effectiveModel })
+    try {
+      const res = await optimize({ rawInput: raw.trim(), sceneId: effectiveScene, model: effectiveModel })
       setResult(res); setLoading(false); setCredits((c) => c - 1)
       addToHistory(res); setHistory(getHistory())
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100)
-    }, 600 + Math.random() * 400)
+    } catch (e: any) {
+      console.error("[Optimize] Failed:", e)
+      setLoading(false)
+    }
   }, [effectiveScene, effectiveModel, loading, credits])
 
   const handleGenerate = useCallback(() => doGenerate(input), [input, doGenerate])
   const handleRegenerate = useCallback(() => { if (result) doGenerate(result.rawInput) }, [result, doGenerate])
+
+  const userOwnsKey = usingOwnKey()
+  const imgCreditCost = userOwnsKey ? 0 : IMG_COST
+  const canGenImage = result && !genLoading && (imgCreditCost === 0 || credits >= imgCreditCost)
+
+  const handleGenImage = useCallback(async (modelOverride?: string) => {
+    if (!result || genLoading) return
+    const targetModel = modelOverride || effectiveModel
+    const cost = usingOwnKey() ? 0 : IMG_COST
+    if (cost > 0 && credits < cost) return
+    setGenLoading(true); setGenImage(null)
+    try {
+      const img = await generateImage({
+        prompt: result.positivePrompt,
+        negativePrompt: result.negativePrompt,
+        modelId: targetModel,
+      })
+      setGenImage(img)
+      if (cost > 0) setCredits((c) => c - cost)
+    } catch (e: any) {
+      console.error("[PromptArt] Generation failed:", e)
+      setGenImage({ url: "", model: `error: ${e.message || "Unknown error"}` })
+    }
+    setGenLoading(false)
+  }, [result, effectiveModel, genLoading, credits])
+
+  const handleDoubaoGen = useCallback(() => handleGenImage("doubao"), [handleGenImage])
+
+  const handleDownload = useCallback((url: string) => {
+    // Proxy through our server to avoid CORS
+    const proxyUrl = `/api/download-image?url=${encodeURIComponent(url)}`
+    const a = document.createElement("a")
+    a.href = proxyUrl
+    a.download = `promptart-${Date.now()}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }, [])
 
   const handleCopy = useCallback(async (text: string) => {
     try { await navigator.clipboard.writeText(text) } catch {
@@ -377,6 +460,85 @@ export default function Home() {
                   )
                 })()}
 
+                {/* 豆包 AI Image Generation - Prominent */}
+                <hr className="border-[var(--border)]" />
+                <div className="bg-[var(--surface-2)]/60 border border-[var(--accent)]/15 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/15 flex items-center justify-center">
+                        <svg className="w-4 h-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                      </div>
+                      <div>
+                        <span className="text-sm font-semibold text-[var(--foreground)]">PromptArt</span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] text-[var(--text-tertiary)]">AI image generation</span>
+                          {(() => {
+                            const st = getModelGenStatus("doubao")
+                            if (st.keySource === "system") return <span className="text-[10px] text-[var(--accent-dim)]">系统 key ✓</span>
+                            if (st.keySource === "user") return <span className="text-[10px] text-[var(--green)]/70">你的 key ✓</span>
+                            return <span className="text-[10px] text-[var(--text-tertiary)]">mock</span>
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => setShowApiKey(true)}
+                      className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--accent-dim)] px-2 py-1 rounded transition-colors"
+                    >API 设置</button>
+                  </div>
+
+                  {/* Error display */}
+                  {genImage?.model?.startsWith("error:") ? (
+                    <div className="bg-[var(--red)]/5 border border-[var(--red)]/15 rounded-lg p-3 text-xs text-[var(--red)]/80">
+                      <div className="font-medium mb-1">Generation failed</div>
+                      <div className="text-[11px] break-all">{genImage.model.replace("error: ", "")}</div>
+                      <button onClick={() => setGenImage(null)} className="mt-2 text-[var(--accent-dim)] hover:text-[var(--accent)]">Try again</button>
+                    </div>
+                  ) : genImage ? (
+                    <div>
+                      <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-black">
+                        <img src={genImage.url} alt="豆包生成" className="w-full" />
+                      </div>
+                      <div className="mt-1.5 text-[10px] text-[var(--text-tertiary)] flex items-center justify-between">
+                        <span>{genImage.duration ? `PromptArt · ${(genImage.duration / 1000).toFixed(1)}s` : "PromptArt"}</span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleDownload(genImage.url)}
+                            className="text-[var(--accent-dim)] hover:text-[var(--accent)] flex items-center gap-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            Download
+                          </button>
+                          <button onClick={() => setGenImage(null)} className="hover:text-[var(--text-secondary)]">清除</button>
+                          <button onClick={handleDoubaoGen} disabled={genLoading} className="text-[var(--accent-dim)] hover:text-[var(--accent)] disabled:opacity-30">重新生成</button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : genLoading ? (
+                    <div className="flex items-center justify-center py-10 rounded-lg border border-dashed border-[var(--accent)]/20 bg-[var(--surface-2)]">
+                      <div className="flex flex-col items-center gap-2">
+                        <svg className="animate-spin h-6 w-6 text-[var(--accent)]" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span className="text-xs text-[var(--text-secondary)]">PromptArt is creating...</span>
+                      </div>
+                    </div>
+                  ) : canGenImage || hasSysKey() ? (
+                    <button onClick={handleDoubaoGen}
+                      className="w-full py-4 rounded-lg bg-[var(--accent)]/10 border border-[var(--accent)]/25 text-[var(--accent)] hover:bg-[var(--accent)]/15 hover:border-[var(--accent)]/40 transition-all text-sm font-medium group"
+                    >
+                      <span className="flex items-center justify-center gap-2.5">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        <span>PromptArt · {IMG_COST} credits</span>
+                        <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="w-full py-4 rounded-lg border border-dashed border-[var(--border)] text-[var(--text-tertiary)] text-sm text-center">
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        积分不足，需要 {IMG_COST} 点数
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Bottom hint */}
                 <div className="text-[11px] text-[var(--text-tertiary)] text-center">
                   Using <span className="text-[var(--accent-dim)]">{getModel(effectiveModel).label}</span> — click the model chip to switch
@@ -432,6 +594,192 @@ export default function Home() {
 
         <footer className="mt-12 pb-6 border-t border-[var(--border)] pt-5 text-center text-xs text-[var(--text-tertiary)]">{t("footer.copyright")}</footer>
       </main>
+
+      {/* API Key Modal */}
+      {showApiKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowApiKey(false)}>
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-sm">API Keys</h3>
+              <button onClick={() => setShowApiKey(false)} className="text-[var(--text-tertiary)] hover:text-[var(--foreground)] text-lg leading-none">×</button>
+            </div>
+            {/* DeepSeek key for prompt optimization */}
+            <div className="mb-4">
+              <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">DeepSeek API Key <span className="text-[var(--accent-dim)]">(for prompt optimization)</span></label>
+              <input type="password" defaultValue={getDeepSeekKey()}
+                id="deepseek-key-input"
+                placeholder="sk-..."
+                className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+              />
+              <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                Required for AI-powered prompt optimization. <a href="https://platform.deepseek.com/api_keys" target="_blank" className="text-[var(--accent-dim)] hover:text-[var(--accent)]">Get DeepSeek key →</a>
+              </p>
+            </div>
+
+            <hr className="border-[var(--border)] mb-3" />
+
+            <p className="text-xs text-[var(--text-secondary)] mb-3">
+              <span className="text-[var(--green)]/70">Your key</span> — free generation, no credit deduction.&nbsp;
+              <span className="text-[var(--accent-dim)]">System key</span> — costs {IMG_COST} credits per image.
+            </p>
+            <p className="text-xs text-[var(--text-secondary)] mb-3">Without any key, mock previews are shown at no cost.</p>
+
+            {/* Model-to-API mapping */}
+            <div className="bg-[var(--surface-2)] rounded-lg p-2.5 mb-3">
+              <div className="text-[11px] font-medium text-[var(--text-secondary)] mb-1.5">Model support</div>
+              <div className="grid grid-cols-2 gap-1">
+                {[
+                  { model: "即梦/豆包/通义", api: "Custom", note: "OpenAI 兼容" },
+                  { model: "Midjourney", api: "—", note: "No public API" },
+                  { model: "SD / Flux", api: "Replicate", note: "r8_ key" },
+                  { model: "DALL·E 3", api: "OpenAI", note: "sk- key" },
+                ].map((row) => (
+                  <div key={row.model} className="flex items-center gap-1.5 text-[10px]">
+                    <span className="text-[var(--text-tertiary)]">{row.model}</span>
+                    <span className={row.api === "—" ? "text-[var(--red)]/50" : "text-[var(--green)]/60"}>{row.api}</span>
+                    <span className="text-[var(--text-tertiary)]">{row.note}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">{providerCapabilities[0].label} API Key</label>
+                <input type="password" value={replicateInput} onChange={(e) => setReplicateInput(e.target.value)}
+                  placeholder={providerCapabilities[0].keyPrefix + "..."}
+                  className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                />
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                  Supports: {providerCapabilities[0].models.join(", ")}. <a href={providerCapabilities[0].link} target="_blank" className="text-[var(--accent-dim)] hover:text-[var(--accent)]">{providerCapabilities[0].linkLabel}</a>
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium text-[var(--text-secondary)] block mb-1">{providerCapabilities[1].label} API Key</label>
+                <input type="password" value={openaiInput} onChange={(e) => setOpenaiInput(e.target.value)}
+                  placeholder={providerCapabilities[1].keyPrefix + "..."}
+                  className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                />
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                  Supports: {providerCapabilities[1].models.join(", ")}. <a href={providerCapabilities[1].link} target="_blank" className="text-[var(--accent-dim)] hover:text-[var(--accent)]">{providerCapabilities[1].linkLabel}</a>
+                </p>
+              </div>
+
+              {/* Custom API (Chinese models) */}
+              <details className="group">
+                <summary className="text-[11px] font-medium text-[var(--text-secondary)] cursor-pointer hover:text-[var(--foreground)] transition-colors select-none mb-2">
+                  Custom API <span className="text-[var(--text-tertiary)] font-normal">(即梦/豆包/通义万相)</span>
+                </summary>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">API Endpoint URL</label>
+                    <input type="text" defaultValue={getCustomUrl()}
+                      id="custom-url-input"
+                      placeholder="https://api.example.com"
+                      className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">API Key</label>
+                    <input type="password" defaultValue={getCustomKey()}
+                      id="custom-key-input"
+                      className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">Model Name</label>
+                    <input type="text" defaultValue={getCustomModel()}
+                      id="custom-model-input"
+                      placeholder="e.g. jimeng-v2, doubao-pro"
+                      className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                    />
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            {/* System keys (collapsible) */}
+            <details className="mt-3 group">
+              <summary className="text-[11px] text-[var(--text-tertiary)] cursor-pointer hover:text-[var(--text-secondary)] transition-colors select-none">
+                System keys (for product owner)
+              </summary>
+              <div className="mt-2 space-y-2">
+                <div>
+                  <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">System Replicate Key</label>
+                  <input type="password" defaultValue={getSysReplicateKey()}
+                    id="sys-replicate-input"
+                    className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">System OpenAI Key</label>
+                  <input type="password" defaultValue={getSysOpenAIKey()}
+                    id="sys-openai-input"
+                    className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">System Custom API URL</label>
+                  <input type="text" defaultValue={getSysCustomUrl()}
+                    id="sys-custom-url-input"
+                    placeholder="https://api.example.com"
+                    className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">System Custom API Key</label>
+                  <input type="password" defaultValue={getSysCustomKey()}
+                    id="sys-custom-key-input"
+                    className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-tertiary)] block mb-0.5">System Custom Model</label>
+                  <input type="text" defaultValue={getSysCustomModel()}
+                    id="sys-custom-model-input"
+                    placeholder="e.g. jimeng-v2"
+                    className="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-[var(--accent-dim)] placeholder:text-[var(--text-tertiary)]"
+                  />
+                </div>
+              </div>
+            </details>
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => { setShowApiKey(false); setReplicateInput(getReplicateKey()); setOpenaiInput(getOpenAIKey()) }}
+                className="flex-1 py-2 rounded-lg text-xs bg-[var(--surface-2)] text-[var(--text-secondary)] hover:text-[var(--foreground)] border border-[var(--border)] transition-colors"
+              >Cancel</button>
+              <button onClick={() => {
+                // DeepSeek key
+                const dsk = (document.getElementById("deepseek-key-input") as HTMLInputElement)?.value
+                if (dsk !== undefined) setDeepSeekKey(dsk || "")
+                // User keys
+                setReplicateKey(replicateInput); setOpenAIKey(openaiInput)
+                const cu = (document.getElementById("custom-url-input") as HTMLInputElement)?.value
+                const ck = (document.getElementById("custom-key-input") as HTMLInputElement)?.value
+                const cm = (document.getElementById("custom-model-input") as HTMLInputElement)?.value
+                if (cu !== undefined) setCustomUrl(cu || "")
+                if (ck !== undefined) setCustomKey(ck || "")
+                if (cm !== undefined) setCustomModel(cm || "")
+                // System keys
+                const sysRep = (document.getElementById("sys-replicate-input") as HTMLInputElement)?.value
+                const sysOai = (document.getElementById("sys-openai-input") as HTMLInputElement)?.value
+                const sysCu = (document.getElementById("sys-custom-url-input") as HTMLInputElement)?.value
+                const sysCk = (document.getElementById("sys-custom-key-input") as HTMLInputElement)?.value
+                const sysCm = (document.getElementById("sys-custom-model-input") as HTMLInputElement)?.value
+                if (sysRep !== undefined) setSysReplicateKey(sysRep || "")
+                if (sysOai !== undefined) setSysOpenAIKey(sysOai || "")
+                if (sysCu !== undefined) setSysCustomUrl(sysCu || "")
+                if (sysCk !== undefined) setSysCustomKey(sysCk || "")
+                if (sysCm !== undefined) setSysCustomModel(sysCm || "")
+                setShowApiKey(false)
+              }}
+                className="flex-1 py-2 rounded-lg text-xs bg-[var(--accent)] text-black font-medium hover:bg-[var(--accent-hover)] transition-colors"
+              >Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

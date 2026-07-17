@@ -39,7 +39,7 @@ type Key =
   | "beforeAfter.title" | "beforeAfter.description" | "beforeAfter.tryLabel"
   | "beforeAfter.before" | "beforeAfter.after"
   | "scene.character" | "scene.car" | "scene.product" | "scene.general"
-  | "model.midjourney" | "model.sd" | "model.dalle3" | "model.flux" | "model.firefly" | "model.ideogram"
+  | "model.midjourney" | "model.sd" | "model.dalle3" | "model.flux" | "model.firefly" | "model.ideogram" | "model.doubao"
   | "footer.copyright"
   | "score.excellent" | "score.great" | "score.good" | "score.fair" | "score.needsWork"
   | "history.title" | "history.empty" | "history.use" | "history.delete"
@@ -86,6 +86,7 @@ const dict: Record<LocaleCode, Record<Key, string>> = {
     "scene.car": "Car & Vehicle",
     "scene.product": "Product",
     "scene.general": "General",
+    "model.doubao": "Doubao",
     "model.midjourney": "Midjourney",
     "model.sd": "Stable Diffusion",
     "model.dalle3": "DALL·E 3",
@@ -144,6 +145,7 @@ const dict: Record<LocaleCode, Record<Key, string>> = {
     "scene.car": "汽车与车辆",
     "scene.product": "产品",
     "scene.general": "通用",
+    "model.doubao": "豆包",
     "model.midjourney": "Midjourney",
     "model.sd": "Stable Diffusion",
     "model.dalle3": "DALL·E 3",
