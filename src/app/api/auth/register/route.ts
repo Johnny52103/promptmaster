@@ -1,6 +1,6 @@
 import { verifyCode } from "@/lib/verify"
 
-// In-memory fallback when Supabase is not available
+// In-memory fallback (per-instance, useSupabase for cross-instance persistence)
 const ipRegisterMap = new Map<string, number>()
 
 function getIp(request: Request): string {
@@ -8,30 +8,6 @@ function getIp(request: Request): string {
     || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     || request.headers.get("x-real-ip")?.trim()
     || "unknown"
-}
-
-/** Direct REST API call to Supabase to check if IP registered in last 24h */
-async function checkIpLimit(url: string, serviceRole: string, ip: string): Promise<boolean> {
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const qs = `ip=eq.${encodeURIComponent(ip)}&registered_at=gte.${encodeURIComponent(yesterday)}&select=id&limit=1`
-  const res = await fetch(`${url}/rest/v1/registration_ips?${qs}`, {
-    headers: { "apikey": serviceRole, "Authorization": "Bearer " + serviceRole },
-  })
-  if (!res.ok) {
-    console.warn("[Register] IP check query failed:", res.status, await res.text().catch(() => ""))
-    return false // query failed — let registration proceed
-  }
-  const rows = await res.json()
-  return Array.isArray(rows) && rows.length > 0
-}
-
-/** Direct REST API call to record IP */
-async function recordIp(url: string, serviceRole: string, ip: string, email: string) {
-  await fetch(`${url}/rest/v1/registration_ips`, {
-    method: "POST",
-    headers: { "apikey": serviceRole, "Authorization": "Bearer " + serviceRole, "Content-Type": "application/json", "Prefer": "return=minimal" },
-    body: JSON.stringify({ ip, email }),
-  }).catch((e) => console.warn("[Register] Failed to record IP:", e.message))
 }
 
 export async function POST(request: Request) {
@@ -48,29 +24,37 @@ export async function POST(request: Request) {
     }
 
     const ip = getIp(request)
-    const url = process.env.SUPABASE_URL || ""
-    const serviceRole = process.env.SUPABASE_SERVICE_ROLE || ""
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
-    // ---- Phase 1: In-memory IP check (fast path, works per-instance) ----
+    // ---- Phase 1: In-memory IP check ----
     const lastMem = ipRegisterMap.get(ip)
-    if (lastMem && Date.now() - lastMem < 24 * 60 * 60 * 1000) {
+    if (lastMem && Date.now() - lastMem < ONE_DAY_MS) {
       return Response.json({ error: "This IP has already registered today. Please try again tomorrow." }, { status: 429 })
     }
 
-    // ---- Phase 2: Persistent check (Supabase REST API) ----
-    if (url && serviceRole) {
-      const blocked = await checkIpLimit(url, serviceRole, ip)
-      if (blocked) {
-        ipRegisterMap.set(ip, Date.now())
-        return Response.json({ error: "This IP has already registered today. Please try again tomorrow." }, { status: 429 })
-      }
-    }
+    // ---- Phase 2: Supabase (if configured) ----
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+    const serviceRole = process.env.SUPABASE_SERVICE_ROLE || ""
 
-    // ---- Phase 3: Register ----
     if (url && serviceRole) {
       try {
         const { createClient } = await import("@supabase/supabase-js")
         const supabase = createClient(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } })
+
+        // Check persistent table (JS client handles URL construction)
+        const yesterday = new Date(Date.now() - ONE_DAY_MS).toISOString()
+        const { data: existing } = await supabase
+          .from("registration_ips")
+          .select("id", { count: "exact", head: true })
+          .eq("ip", ip)
+          .gte("registered_at", yesterday)
+
+        if (existing && existing.length > 0) {
+          ipRegisterMap.set(ip, Date.now())
+          return Response.json({ error: "This IP has already registered today. Please try again tomorrow." }, { status: 429 })
+        }
+
+        // Register user
         const bcrypt = await import("bcryptjs")
         const passwordHash = await bcrypt.hash(password, 10)
 
@@ -83,8 +67,10 @@ export async function POST(request: Request) {
           throw error
         }
 
-        // Record IP and create credits
-        await recordIp(url, serviceRole, ip, email)
+        // Record IP (JS client handles insert)
+        await supabase.from("registration_ips").insert({ ip, email })
+
+        // Create credits
         await supabase.from("credits").insert({ user_id: user.id, balance: 10, total_purchased: 10 })
         await supabase.from("credit_transactions").insert({
           user_id: user.id, amount: 10, type: "bonus", description: "Registration bonus",
@@ -93,11 +79,12 @@ export async function POST(request: Request) {
         ipRegisterMap.set(ip, Date.now())
         return Response.json({ user: { id: user.id, email: user.email, name: user.name }, credits: 10 })
       } catch (dbError: any) {
-        console.warn("[Register] DB error, falling back to demo:", dbError?.message)
+        console.warn("[Register] DB error, falling back to demo:", dbError?.message, dbError?.code)
+        ipRegisterMap.set(ip, Date.now())
       }
     }
 
-    // Demo mode
+    // ---- Demo mode ----
     ipRegisterMap.set(ip, Date.now())
     return Response.json({
       user: { id: "demo-" + Date.now(), email, name: name || email.split("@")[0] },
