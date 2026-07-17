@@ -44,8 +44,17 @@ CREATE TABLE orders (
   completed_at TIMESTAMPTZ
 );
 
+-- Registration IP limit table (one registration per IP per day)
+CREATE TABLE registration_ips (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  ip TEXT NOT NULL,
+  registered_at TIMESTAMPTZ DEFAULT NOW(),
+  email TEXT
+);
+
 -- Indexes
 CREATE INDEX idx_credits_user ON credits(user_id);
 CREATE INDEX idx_transactions_user ON credit_transactions(user_id);
 CREATE INDEX idx_orders_user ON orders(user_id);
 CREATE INDEX idx_orders_paddle ON orders(paddle_transaction_id);
+CREATE INDEX idx_registration_ips_ip_date ON registration_ips(ip, registered_at);
