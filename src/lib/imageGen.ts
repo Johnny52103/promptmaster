@@ -76,7 +76,7 @@ export function setSysOpenAIKey(key: string) {
 }
 
 export function hasSysKey(): boolean {
-  return !!(getSysReplicateKey() || getSysOpenAIKey())
+  return !!(getSysReplicateKey() || getSysOpenAIKey() || getSysCustomKey())
 }
 
 // Key resolution: user's own key → system key → none
@@ -290,19 +290,24 @@ export function usingOwnCustomKey(): boolean {
 
 async function generateWithCustom(params: ImageGenParams): Promise<ImageGenResult> {
   const config = resolveCustomConfig()
-  if (!config) throw new Error("No custom API configured")
-
   const startTime = Date.now()
+
+  // If config exists and has real keys (not "server" placeholder), send them
+  // Otherwise leave fields empty so server-side uses env vars
+  const payload: Record<string, string> = {
+    prompt: params.prompt,
+    ...(params.negativePrompt ? { negativePrompt: params.negativePrompt } : {}),
+  }
+  if (config && config.key !== "server") {
+    payload.apiUrl = config.url
+    payload.apiKey = config.key
+    payload.model = config.model
+  }
 
   const res = await fetch("/api/generate-image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      apiUrl: config.url,
-      apiKey: config.key,
-      model: config.model,
-      prompt: params.prompt,
-    }),
+    body: JSON.stringify(payload),
   })
 
   const data = await res.json()
@@ -313,7 +318,7 @@ async function generateWithCustom(params: ImageGenParams): Promise<ImageGenResul
 
   return {
     url: data.url,
-    model: data.model || config.model,
+    model: data.model || config?.model || "custom",
     duration: Date.now() - startTime,
   }
 }
@@ -328,7 +333,7 @@ export function getModelProvider(modelId: string): ImageGenProvider {
   const customModels = ["custom", "jimeng", "doubao", "tongyi", "hunyuan"]
   // midjourney, firefly, ideogram — no public API, always fallback to mock
 
-  if (customModels.includes(modelId) && resolveCustomConfig()) return "custom"
+  if (customModels.includes(modelId) && (resolveCustomConfig() || getSysCustomKey() === "server")) return "custom"
   if (resolveReplicateKey() && replicateModels.includes(modelId)) return "replicate"
   if (resolveOpenAIKey() && openaiModels.includes(modelId)) return "openai"
   return "mock"
@@ -400,6 +405,8 @@ export function getModelGenStatus(modelId: string): { canGen: boolean; via?: str
 
   if (userKey) return { canGen: true, via: info.provider, keySource: "user" }
   if (sysKey) return { canGen: true, via: info.provider, keySource: "system" }
+  // Check if server has keys configured via env vars (stored as "server" placeholder)
+  if (info.provider === "Custom" && (getSysCustomKey() === "server")) return { canGen: true, via: "Server", keySource: "system" }
   return { canGen: false, via: info.provider, note: `Add ${info.provider} key` }
 }
 

@@ -55,6 +55,27 @@ function autoDetectScene(input: string): string {
   return best
 }
 
+const AUTH_KEY = "promptmaster_auth"
+
+function loadAuth(): { user: any; credits: number } | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem(AUTH_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw)
+    if (data?.user && typeof data.credits === "number") return data
+  } catch {}
+  return null
+}
+
+function saveAuth(user: any, credits: number) {
+  try { localStorage.setItem(AUTH_KEY, JSON.stringify({ user, credits, savedAt: Date.now() })) } catch {}
+}
+
+function clearAuth() {
+  try { localStorage.removeItem(AUTH_KEY) } catch {}
+}
+
 export default function Home() {
   const t = useT()
   const { locale } = useLocale()
@@ -62,12 +83,13 @@ export default function Home() {
   const [result, setResult] = useState<OptimizeResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [credits, setCredits] = useState(10)
+  const saved = useRef(loadAuth())
+  const [credits, setCredits] = useState(saved.current?.credits ?? 10)
   const [detectedLang, setDetectedLang] = useState<LanguageFamily>("en")
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [showSelectors, setShowSelectors] = useState(false)
   const resultRef = useRef<HTMLDivElement>(null)
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<any>(saved.current?.user ?? null)
   const [showAuth, setShowAuth] = useState(false)
   const [showPricing, setShowPricing] = useState(false)
   const [genImage, setGenImage] = useState<ImageGenResult | null>(null)
@@ -92,6 +114,21 @@ export default function Home() {
     setHistory(getHistory())
     setReplicateInput(getReplicateKey())
     setOpenaiInput(getOpenAIKey())
+
+    // Load system config from server (env vars)
+    fetch("/api/system-config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg.hasDoubao) {
+          // Server has Doubao keys, ensure localStorage reflects system capability
+          if (!getSysCustomUrl() && !getSysCustomKey()) {
+            setSysCustomUrl("server")
+            setSysCustomKey("server")
+            setSysCustomModel("doubao-seedream-5-0-260128")
+          }
+        }
+      })
+      .catch(() => {})
 
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search)
@@ -119,6 +156,11 @@ export default function Home() {
     }
   }, [])
 
+  // Persist credits whenever they change
+  useEffect(() => {
+    if (user) saveAuth(user, credits)
+  }, [credits, user])
+
   // Reset overrides when input changes significantly
   useEffect(() => {
     if (!input.trim()) { setOverriddenScene(null); setOverriddenModel(null) }
@@ -126,6 +168,7 @@ export default function Home() {
 
   const doGenerate = useCallback(async (raw: string) => {
     if (!raw.trim() || loading || credits <= 0) return
+    if (!user) { setShowAuth(true); return }
     setLoading(true); setCopied(false)
     try {
       const res = await optimize({ rawInput: raw.trim(), sceneId: effectiveScene, model: effectiveModel })
@@ -136,7 +179,7 @@ export default function Home() {
       console.error("[Optimize] Failed:", e)
       setLoading(false)
     }
-  }, [effectiveScene, effectiveModel, loading, credits])
+  }, [effectiveScene, effectiveModel, loading, credits, user])
 
   const handleGenerate = useCallback(() => doGenerate(input), [input, doGenerate])
   const handleRegenerate = useCallback(() => { if (result) doGenerate(result.rawInput) }, [result, doGenerate])
@@ -147,6 +190,7 @@ export default function Home() {
 
   const handleGenImage = useCallback(async (modelOverride?: string) => {
     if (!result || genLoading) return
+    if (!user) { setShowAuth(true); return }
     const targetModel = modelOverride || effectiveModel
     const cost = usingOwnKey() ? 0 : IMG_COST
     if (cost > 0 && credits < cost) return
@@ -164,7 +208,7 @@ export default function Home() {
       setGenImage({ url: "", model: `error: ${e.message || "Unknown error"}` })
     }
     setGenLoading(false)
-  }, [result, effectiveModel, genLoading, credits])
+  }, [result, effectiveModel, genLoading, credits, user])
 
   const handleDoubaoGen = useCallback(() => handleGenImage("doubao"), [handleGenImage])
 
@@ -204,6 +248,12 @@ export default function Home() {
 
   const handleLogin = useCallback((userData: any, userCredits: number) => {
     setUser(userData); setCredits(userCredits)
+    saveAuth(userData, userCredits)
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    setUser(null); setCredits(10)
+    clearAuth()
   }, [])
 
   const transPreview = input.trim() && detectedLang !== "en" ? translateInput(input.trim()) : null
@@ -236,6 +286,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-[var(--text-secondary)]">{user.name || user.email} · {credits} cr</span>
                 <button onClick={() => setShowPricing(true)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors">Buy</button>
+                <button onClick={handleLogout} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--red)]/70 transition-colors px-1">Exit</button>
               </div>
             ) : (
               <button onClick={() => setShowAuth(true)} className="bg-[var(--accent)] text-black px-4 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors">{t("header.login")}</button>
@@ -320,23 +371,18 @@ export default function Home() {
               </div>
 
               <div className="flex gap-2">
-                <button onClick={handleGenerate} disabled={!input.trim() || loading || credits <= 0}
+                <button onClick={handleGenerate} disabled={!input.trim() || loading || (!!user && credits <= 0)}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all bg-[var(--accent)] text-black hover:bg-[var(--accent-hover)] disabled:opacity-30 disabled:cursor-not-allowed"
                 >{loading ? (
                   <span className="flex items-center justify-center gap-1.5">
                     <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                     {t("input.optimizing")}
                   </span>
-                ) : credits <= 0 ? t("input.outOfCredits") : `${t("input.generate")} (${credits} ${t("input.creditsLeft")})`}</button>
-                {credits <= 3 && credits > 0 && (
-                  <button onClick={() => setCredits((c) => c + 10)}
+                ) : !user ? t("header.login") : credits <= 0 ? t("input.outOfCredits") : `${t("input.generate")} (${credits} ${t("input.creditsLeft")})`}</button>
+                {credits <= 3 && (
+                  <button onClick={() => setShowPricing(true)}
                     className="px-2 py-1 rounded text-[10px] text-[var(--accent-dim)] hover:text-[var(--accent)] bg-[var(--surface-2)] border border-[var(--border)] transition-colors"
-                  >+10 credits</button>
-                )}
-                {credits <= 0 && (
-                  <button onClick={() => setCredits(10)}
-                    className="px-3 py-2 rounded-lg text-xs font-medium bg-[var(--accent)] text-black hover:bg-[var(--accent-hover)] transition-colors"
-                  >Top up 10 credits</button>
+                  >Buy credits</button>
                 )}
                 {result && (
                   <button onClick={handleRegenerate} disabled={loading || credits <= 0}
@@ -612,7 +658,7 @@ export default function Home() {
       </main>
 
       <AuthModal open={showAuth} onClose={() => setShowAuth(false)} onLogin={handleLogin} />
-      <PricingModal open={showPricing} onClose={() => setShowPricing(false)} user={user} />
+      <PricingModal open={showPricing} onClose={() => setShowPricing(false)} user={user} onCreditsPurchased={(c) => { const n = credits + c; setCredits(n); if (user) saveAuth(user, n) }} />
 
       {/* API Key Modal */}
       {showApiKey && (
