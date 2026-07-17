@@ -1,6 +1,6 @@
 import { verifyCode } from "@/lib/verify"
 
-// In-memory fallback (per-instance, useSupabase for cross-instance persistence)
+// In-memory fallback (per-instance, Supabase for cross-instance persistence)
 const ipRegisterMap = new Map<string, number>()
 
 function getIp(request: Request): string {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const ip = getIp(request)
     const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
-    // ---- Phase 1: In-memory IP check ----
+    // ---- Phase 1: In-memory IP check (fast path) ----
     const lastMem = ipRegisterMap.get(ip)
     if (lastMem && Date.now() - lastMem < ONE_DAY_MS) {
       return Response.json({ error: "This IP has already registered today. Please try again tomorrow." }, { status: 429 })
@@ -41,25 +41,32 @@ export async function POST(request: Request) {
         const { createClient } = await import("@supabase/supabase-js")
         const supabase = createClient(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } })
 
-        // Check persistent table (JS client handles URL construction)
+        // Check users table for same IP within 24h (users table confirmed working)
         const yesterday = new Date(Date.now() - ONE_DAY_MS).toISOString()
-        const { data: existing } = await supabase
-          .from("registration_ips")
-          .select("id", { count: "exact", head: true })
+        const { data: dupIp, error: checkErr } = await supabase
+          .from("users")
+          .select("id")
           .eq("ip", ip)
-          .gte("registered_at", yesterday)
+          .gte("created_at", yesterday)
+          .limit(1)
 
-        if (existing && existing.length > 0) {
+        if (checkErr) {
+          console.warn("[Register] IP check query failed:", checkErr.message, checkErr.code)
+          // Don't throw — proceed with in-memory check only
+        } else if (dupIp && dupIp.length > 0) {
           ipRegisterMap.set(ip, Date.now())
           return Response.json({ error: "This IP has already registered today. Please try again tomorrow." }, { status: 429 })
         }
 
-        // Register user
+        // Register user (with ip)
         const bcrypt = await import("bcryptjs")
         const passwordHash = await bcrypt.hash(password, 10)
 
         const { data: user, error } = await supabase.from("users").insert({
-          email, password_hash: passwordHash, name: name || email.split("@")[0],
+          email,
+          password_hash: passwordHash,
+          name: name || email.split("@")[0],
+          ip, // store IP for rate limiting
         }).select().single()
 
         if (error) {
@@ -67,8 +74,8 @@ export async function POST(request: Request) {
           throw error
         }
 
-        // Record IP (JS client handles insert)
-        await supabase.from("registration_ips").insert({ ip, email })
+        // Also try to record in registration_ips (best effort)
+        await supabase.from("registration_ips").insert({ ip, email }).catch(() => {})
 
         // Create credits
         await supabase.from("credits").insert({ user_id: user.id, balance: 10, total_purchased: 10 })
