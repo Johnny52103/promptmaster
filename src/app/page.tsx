@@ -16,6 +16,8 @@ import { generateImage, detectProvider, usingOwnKey, hasSysKey,
   getSysReplicateKey, getSysOpenAIKey, getSysCustomUrl, getSysCustomKey, getSysCustomModel,
   getModelGenStatus, providerCapabilities, type ImageGenResult } from "@/lib/imageGen"
 import { getDeepSeekKey, setDeepSeekKey } from "@/lib/optimizer"
+import AuthModal from "@/components/AuthModal"
+import PricingModal from "@/components/PricingModal"
 import LanguageSelector from "@/components/LanguageSelector"
 
 const scenes = getAllScenes()
@@ -65,6 +67,9 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [showSelectors, setShowSelectors] = useState(false)
   const resultRef = useRef<HTMLDivElement>(null)
+  const [user, setUser] = useState<any>(null)
+  const [showAuth, setShowAuth] = useState(false)
+  const [showPricing, setShowPricing] = useState(false)
   const [genImage, setGenImage] = useState<ImageGenResult | null>(null)
   const [genLoading, setGenLoading] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
@@ -197,6 +202,10 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }, [])
 
+  const handleLogin = useCallback((userData: any, userCredits: number) => {
+    setUser(userData); setCredits(userCredits)
+  }, [])
+
   const transPreview = input.trim() && detectedLang !== "en" ? translateInput(input.trim()) : null
 
   // Cycle through scenes on chip click
@@ -222,8 +231,15 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <LanguageSelector />
-            <span className="text-sm text-[var(--text-secondary)] hover:text-[var(--foreground)] cursor-pointer transition-colors">{t("header.pricing")}</span>
-            <button className="bg-[var(--accent)] text-black px-4 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors">{t("header.login")}</button>
+            <span onClick={() => setShowPricing(true)} className="text-sm text-[var(--text-secondary)] hover:text-[var(--foreground)] cursor-pointer transition-colors">{t("header.pricing")}</span>
+            {user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-secondary)]">{user.name || user.email} · {credits} cr</span>
+                <button onClick={() => setShowPricing(true)} className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors">Buy</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowAuth(true)} className="bg-[var(--accent)] text-black px-4 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors">{t("header.login")}</button>
+            )}
           </div>
         </div>
       </header>
@@ -594,6 +610,9 @@ export default function Home() {
 
         <footer className="mt-12 pb-6 border-t border-[var(--border)] pt-5 text-center text-xs text-[var(--text-tertiary)]">{t("footer.copyright")}</footer>
       </main>
+
+      <AuthModal open={showAuth} onClose={() => setShowAuth(false)} onLogin={handleLogin} />
+      <PricingModal open={showPricing} onClose={() => setShowPricing(false)} user={user} />
 
       {/* API Key Modal */}
       {showApiKey && (

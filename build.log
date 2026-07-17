@@ -1,38 +1,19 @@
 ▲ Next.js 16.2.10 (Turbopack)
+- Environments: .env.local
 
   Creating an optimized production build ...
+✓ Compiled successfully in 1283ms
+  Running TypeScript ...
+Failed to type check.
 
-> Build error occurred
-Error: Turbopack build failed with 2 errors:
-./src/app/tools/[slug]/page.tsx:4:1
-Export findPage doesn't exist in target module
-  [90m2 |[0m
-  [90m3 |[0m [36mimport[0m { notFound, redirect } [36mfrom[0m [32m"next/navigation"[0m
-[31m[1m>[0m [90m4 |[0m [36mimport[0m { findPage, seoPages } [36mfrom[0m [32m"@/data/seo-pages"[0m
-  [90m  |[0m [31m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-  [90m5 |[0m [36mimport[0m [36mtype[0m { [33mMetadata[0m } [36mfrom[0m [32m"next"[0m
-  [90m6 |[0m
-  [90m7 |[0m [36mtype[0m [33mProps[0m = { params: [33mPromise[0m<{ slug: string }> }
+./src/app/page.tsx:19:23
+Type error: File 'c:/Users/Administrator/CodeBuddy/20260717143941/src/components/AuthModal.tsx' is not a module.
 
-The export findPage was not found in module [project]/src/data/seo-pages.ts [app-rsc] (ecmascript).
-The module has no exports at all.
-All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
-
-
-./src/app/tools/[slug]/page.tsx:4:1
-Export seoPages doesn't exist in target module
-  [90m2 |[0m
-  [90m3 |[0m [36mimport[0m { notFound, redirect } [36mfrom[0m [32m"next/navigation"[0m
-[31m[1m>[0m [90m4 |[0m [36mimport[0m { findPage, seoPages } [36mfrom[0m [32m"@/data/seo-pages"[0m
-  [90m  |[0m [31m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-  [90m5 |[0m [36mimport[0m [36mtype[0m { [33mMetadata[0m } [36mfrom[0m [32m"next"[0m
-  [90m6 |[0m
-  [90m7 |[0m [36mtype[0m [33mProps[0m = { params: [33mPromise[0m<{ slug: string }> }
-
-The export seoPages was not found in module [project]/src/data/seo-pages.ts [app-rsc] (ecmascript).
-The module has no exports at all.
-All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
-
-
-    at <unknown> (./src/app/tools/[slug]/page.tsx:4:1)
-    at <unknown> (./src/app/tools/[slug]/page.tsx:4:1)
+  [90m17 |[0m   getModelGenStatus, providerCapabilities, [36mtype[0m [33mImageGenResult[0m } [36mfrom[0m [32m"@/lib/imageGen"[0m
+  [90m18 |[0m [36mimport[0m { getDeepSeekKey, setDeepSeekKey } [36mfrom[0m [32m"@/lib/optimizer"[0m
+[31m[1m>[0m [90m19 |[0m [36mimport[0m [33mAuthModal[0m [36mfrom[0m [32m"@/components/AuthModal"[0m
+  [90m   |[0m                       [31m[1m^[0m
+  [90m20 |[0m [36mimport[0m [33mPricingModal[0m [36mfrom[0m [32m"@/components/PricingModal"[0m
+  [90m21 |[0m [36mimport[0m [33mLanguageSelector[0m [36mfrom[0m [32m"@/components/LanguageSelector"[0m
+  [90m22 |[0m
+Next.js build worker exited with code: 1 and signal: null
