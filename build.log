@@ -1,18 +1,38 @@
 ▲ Next.js 16.2.10 (Turbopack)
 
   Creating an optimized production build ...
-✓ Compiled successfully in 1146ms
-  Running TypeScript ...
-Failed to type check.
 
-./src/app/page.tsx:62:48
-Type error: Expected 2 arguments, but got 1.
+> Build error occurred
+Error: Turbopack build failed with 2 errors:
+./src/app/tools/[slug]/page.tsx:4:1
+Export findPage doesn't exist in target module
+  [90m2 |[0m
+  [90m3 |[0m [36mimport[0m { notFound, redirect } [36mfrom[0m [32m"next/navigation"[0m
+[31m[1m>[0m [90m4 |[0m [36mimport[0m { findPage, seoPages } [36mfrom[0m [32m"@/data/seo-pages"[0m
+  [90m  |[0m [31m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m5 |[0m [36mimport[0m [36mtype[0m { [33mMetadata[0m } [36mfrom[0m [32m"next"[0m
+  [90m6 |[0m
+  [90m7 |[0m [36mtype[0m [33mProps[0m = { params: [33mPromise[0m<{ slug: string }> }
 
-  [90m60 |[0m
-  [90m61 |[0m   [90m// Auto-detect from input[0m
-[31m[1m>[0m [90m62 |[0m   [36mconst[0m sceneId = useMemo(() => input.trim() ? autoDetectScene(input) : [32m"character"[0m, [input])
-  [90m   |[0m                                                [31m[1m^[0m
-  [90m63 |[0m   [36mconst[0m model = useMemo(() => input.trim() ? detectModel(input) : [32m"midjourney"[0m, [input])
-  [90m64 |[0m
-  [90m65 |[0m   [90m// Allow manual override via refs[0m
-Next.js build worker exited with code: 1 and signal: null
+The export findPage was not found in module [project]/src/data/seo-pages.ts [app-rsc] (ecmascript).
+The module has no exports at all.
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+
+./src/app/tools/[slug]/page.tsx:4:1
+Export seoPages doesn't exist in target module
+  [90m2 |[0m
+  [90m3 |[0m [36mimport[0m { notFound, redirect } [36mfrom[0m [32m"next/navigation"[0m
+[31m[1m>[0m [90m4 |[0m [36mimport[0m { findPage, seoPages } [36mfrom[0m [32m"@/data/seo-pages"[0m
+  [90m  |[0m [31m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m5 |[0m [36mimport[0m [36mtype[0m { [33mMetadata[0m } [36mfrom[0m [32m"next"[0m
+  [90m6 |[0m
+  [90m7 |[0m [36mtype[0m [33mProps[0m = { params: [33mPromise[0m<{ slug: string }> }
+
+The export seoPages was not found in module [project]/src/data/seo-pages.ts [app-rsc] (ecmascript).
+The module has no exports at all.
+All exports of the module are statically known (It doesn't have dynamic exports). So it's known statically that the requested export doesn't exist.
+
+
+    at <unknown> (./src/app/tools/[slug]/page.tsx:4:1)
+    at <unknown> (./src/app/tools/[slug]/page.tsx:4:1)
