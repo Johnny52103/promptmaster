@@ -5,20 +5,13 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 // --- Config ---
 export const locales = [
   { code: "en", label: "English", flag: "🇬🇧", dir: "ltr" as const },
-  { code: "zh-CN", label: "简体中文", flag: "🇨🇳", dir: "ltr" as const },
 ]
 
-export type LocaleCode = "en" | "zh-CN"
+export type LocaleCode = "en"
 
 const STORAGE_KEY = "promptmaster_locale"
 
 function getInitialLocale(): LocaleCode {
-  if (typeof window === "undefined") return "en"
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored === "en" || stored === "zh-CN") return stored
-  // Detect browser language
-  const navLang = navigator.language
-  if (navLang.startsWith("zh")) return "zh-CN"
   return "en"
 }
 
@@ -104,65 +97,6 @@ const dict: Record<LocaleCode, Record<Key, string>> = {
     "history.use": "Use",
     "history.delete": "Delete",
   },
-  "zh-CN": {
-    "header.pricing": "价格",
-    "header.login": "登录",
-    "hero.title": "AI 图像提示词优化工具",
-    "hero.description": "将模糊的想法转化为可直接在 Midjourney 或 Stable Diffusion 中使用的优质提示词。",
-    "input.scene": "场景",
-    "input.model": "目标模型",
-    "input.describeIdea": "描述你的想法",
-    "input.placeholder.character": "例如：神秘森林中持弓的黑暗精灵游侠",
-    "input.placeholder.car": "例如：日落时分在山路上飞驰的红色跑车",
-    "input.wordCount": "字",
-    "input.shortcut": "Cmd+Enter 生成",
-    "input.generate": "生成",
-    "input.outOfCredits": "积分已用完",
-    "input.creditsLeft": "剩余积分",
-    "input.optimizing": "优化中...",
-    "result.qualityScore": "质量评分",
-    "result.outOf100": "/100",
-    "result.copy": "复制",
-    "result.copied": "已复制",
-    "result.specificity": "具体度",
-    "result.structure": "结构完整度",
-    "result.negativePrompt": "负面提示词",
-    "result.styleConsistency": "风格一致性",
-    "result.optimizedPrompt": "优化后的提示词",
-    "result.positivePrompt": "正面提示词",
-    "result.negativePromptLabel": "负面提示词",
-    "result.settings": "设置",
-    "result.switchToSD": "切换到 SD 查看正面 + 负面提示词格式",
-    "result.switchToMJ": "切换到 MJ 查看 --ar --v --style --s 参数",
-    "emptyState.title": "优化后的提示词将显示在此处",
-    "emptyState.description": "描述你想要创建的内容，选择场景和模型，然后点击生成。",
-    "beforeAfter.title": "优化前后对比",
-    "beforeAfter.description": "看看 PromptMaster 如何将简短的想法转化为可直接使用的提示词",
-    "beforeAfter.tryLabel": "点击试用 →",
-    "beforeAfter.before": "优化前",
-    "beforeAfter.after": "优化后",
-    "scene.character": "角色",
-    "scene.car": "汽车与车辆",
-    "scene.product": "产品",
-    "scene.general": "通用",
-    "model.doubao": "豆包",
-    "model.midjourney": "Midjourney",
-    "model.sd": "Stable Diffusion",
-    "model.dalle3": "DALL·E 3",
-    "model.flux": "Flux",
-    "model.firefly": "Adobe Firefly",
-    "model.ideogram": "Ideogram",
-    "footer.copyright": "PromptMaster AI — 为创作者打造的 AI 提示词优化工具",
-    "score.excellent": "优秀",
-    "score.great": "很好",
-    "score.good": "良好",
-    "score.fair": "一般",
-    "score.needsWork": "需要改进",
-    "history.title": "最近生成",
-    "history.empty": "还没有生成记录，试试创建一个提示词吧！",
-    "history.use": "使用",
-    "history.delete": "删除",
-  },
 }
 
 // --- Context ---
@@ -192,7 +126,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale, t, dir }}>
-      <div lang={locale === "zh-CN" ? "zh" : "en"}>{children}</div>
+      <div lang="en">{children}</div>
     </LocaleContext.Provider>
   )
 }
